@@ -164,7 +164,7 @@ set(LLVM_ENABLE_ZSTD ${zstd_FOUND})
 
 if(LLVM_ENABLE_LIBXML2)
   if(LLVM_ENABLE_LIBXML2 STREQUAL FORCE_ON)
-    find_package(LibXml2 REQUIRED)
+    find_package(LibXml2 CONFIG REQUIRED)
   elseif(NOT LLVM_USE_SANITIZER MATCHES "Memory.*")
     find_package(LibXml2)
   endif()

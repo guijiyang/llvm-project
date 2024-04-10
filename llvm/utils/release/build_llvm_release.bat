@@ -123,11 +123,7 @@ echo Package version: %package_version%
 echo Build dir: %build_dir%
 echo.
 
-if exist %build_dir% (
-  echo Build directory already exists: %build_dir%
-  exit /b 1
-)
-mkdir %build_dir%
+if not exist %build_dir% mkdir %build_dir%
 cd %build_dir% || exit /b 1
 
 if "%skip-checkout%" == "true" (
@@ -141,8 +137,10 @@ if "%skip-checkout%" == "true" (
   set llvm_src=%build_dir%\llvm-project
 )
 
-curl -O https://gitlab.gnome.org/GNOME/libxml2/-/archive/v2.9.12/libxml2-v2.9.12.tar.gz || exit /b 1
-tar zxf libxml2-v2.9.12.tar.gz
+if not exist libxml2-v2.9.12 (
+  curl -O https://gitlab.gnome.org/GNOME/libxml2/-/archive/v2.9.12/libxml2-v2.9.12.tar.gz || exit /b 1
+  tar zxf libxml2-v2.9.12.tar.gz
+)
 
 REM Setting CMAKE_CL_SHOWINCLUDES_PREFIX to work around PR27226.
 REM Common flags for all builds.
@@ -163,7 +161,15 @@ set common_cmake_flags=^
   -DCLANG_ENABLE_LIBXML2=OFF ^
   -DCMAKE_C_FLAGS="%common_compiler_flags%" ^
   -DCMAKE_CXX_FLAGS="%common_compiler_flags%" ^
-  -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;compiler-rt;lldb;openmp"
+  -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;compiler-rt;lldb;mlir;openmp" ^
+  -DLLVM_PARALLEL_COMPILE_JOBS=12 ^
+  -DLLVM_PARALLEL_LINK_JOBS=6 ^
+  -DCMAKE_C_FLAGS="/utf-8" ^
+  -DCMAKE_CXX_FLAGS="/utf-8" ^
+  -DLLVM_HOST_TRIPLE=x86_64 ^
+  -DLLVM_ENABLE_LLD=On ^
+  -DLLVM_ENABLE_EH=On ^
+  -DLLVM_ENABLE_RTTI=On
 
 set cmake_profile_flags=""
 
@@ -251,7 +257,8 @@ set cmake_flags=^
   -DPYTHON_HOME=%PYTHONHOME% ^
   -DPython3_ROOT_DIR=%PYTHONHOME% ^
   -DLIBXML2_INCLUDE_DIRS=%libxmldir%/include/libxml2 ^
-  -DLIBXML2_LIBRARIES=%libxmldir%/lib/libxml2s.lib
+  -DLIBXML2_LIBRARIES=%libxmldir%/lib/libxml2s.lib ^
+  -DLibXml2_DIR=%libxmldir%/lib/cmake/libxml2-2.9.10
 
 cmake -GNinja %cmake_flags% %llvm_src%\llvm || exit /b 1
 ninja || ninja || ninja || exit /b 1
@@ -291,7 +298,7 @@ ninja package || exit /b 1
 :: generate tarball with install toolchain only off
 set filename=clang+llvm-%version%-x86_64-pc-windows-msvc
 cmake -GNinja %cmake_flags% %cmake_profile_flags% -DLLVM_INSTALL_TOOLCHAIN_ONLY=OFF ^
-  -DCMAKE_INSTALL_PREFIX=%build_dir%/%filename% ..\llvm-project\llvm || exit /b 1
+  -DCMAKE_INSTALL_PREFIX="D:/Program Files/llvm/%filename%" ..\llvm-project\llvm || exit /b 1
 ninja install || exit /b 1
 :: check llvm_config is present & returns something
 %build_dir%/%filename%/bin/llvm-config.exe --bindir || exit /b 1
@@ -379,7 +386,7 @@ set python_dir=%1
 
 REM Set Python environment
 if "%local-python%" == "true" (
-  FOR /F "delims=" %%i IN ('where python.exe ^| head -1') DO set python_exe=%%i
+  FOR /F "delims=" %%i IN ('where.exe python.exe') DO IF NOT defined python_exe SET python_exe=%%i
   set PYTHONHOME=!python_exe:~0,-11!
 ) else (
   %python_dir%/python.exe --version || exit /b 1
@@ -397,26 +404,28 @@ exit /b 0
 :: Build libxml.
 ::==============================================================================
 :do_build_libxml
-mkdir libxmlbuild
-cd libxmlbuild
-cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install ^
-  -DBUILD_SHARED_LIBS=OFF -DLIBXML2_WITH_C14N=OFF -DLIBXML2_WITH_CATALOG=OFF ^
-  -DLIBXML2_WITH_DEBUG=OFF -DLIBXML2_WITH_DOCB=OFF -DLIBXML2_WITH_FTP=OFF ^
-  -DLIBXML2_WITH_HTML=OFF -DLIBXML2_WITH_HTTP=OFF -DLIBXML2_WITH_ICONV=OFF ^
-  -DLIBXML2_WITH_ICU=OFF -DLIBXML2_WITH_ISO8859X=OFF -DLIBXML2_WITH_LEGACY=OFF ^
-  -DLIBXML2_WITH_LZMA=OFF -DLIBXML2_WITH_MEM_DEBUG=OFF -DLIBXML2_WITH_MODULES=OFF ^
-  -DLIBXML2_WITH_OUTPUT=ON -DLIBXML2_WITH_PATTERN=OFF -DLIBXML2_WITH_PROGRAMS=OFF ^
-  -DLIBXML2_WITH_PUSH=OFF -DLIBXML2_WITH_PYTHON=OFF -DLIBXML2_WITH_READER=OFF ^
-  -DLIBXML2_WITH_REGEXPS=OFF -DLIBXML2_WITH_RUN_DEBUG=OFF -DLIBXML2_WITH_SAX1=OFF ^
-  -DLIBXML2_WITH_SCHEMAS=OFF -DLIBXML2_WITH_SCHEMATRON=OFF -DLIBXML2_WITH_TESTS=OFF ^
-  -DLIBXML2_WITH_THREADS=ON -DLIBXML2_WITH_THREAD_ALLOC=OFF -DLIBXML2_WITH_TREE=ON ^
-  -DLIBXML2_WITH_VALID=OFF -DLIBXML2_WITH_WRITER=OFF -DLIBXML2_WITH_XINCLUDE=OFF ^
-  -DLIBXML2_WITH_XPATH=OFF -DLIBXML2_WITH_XPTR=OFF -DLIBXML2_WITH_ZLIB=OFF ^
-  ../../libxml2-v2.9.12 || exit /b 1
-ninja install || exit /b 1
-set libxmldir=%cd%\install
+if not exist libxmlbuild (
+  mkdir libxmlbuild
+  cd libxmlbuild
+  cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install ^
+    -DBUILD_SHARED_LIBS=OFF -DLIBXML2_WITH_C14N=OFF -DLIBXML2_WITH_CATALOG=OFF ^
+    -DLIBXML2_WITH_DEBUG=OFF -DLIBXML2_WITH_DOCB=OFF -DLIBXML2_WITH_FTP=OFF ^
+    -DLIBXML2_WITH_HTML=OFF -DLIBXML2_WITH_HTTP=OFF -DLIBXML2_WITH_ICONV=OFF ^
+    -DLIBXML2_WITH_ICU=OFF -DLIBXML2_WITH_ISO8859X=OFF -DLIBXML2_WITH_LEGACY=OFF ^
+    -DLIBXML2_WITH_LZMA=OFF -DLIBXML2_WITH_MEM_DEBUG=OFF -DLIBXML2_WITH_MODULES=OFF ^
+    -DLIBXML2_WITH_OUTPUT=ON -DLIBXML2_WITH_PATTERN=OFF -DLIBXML2_WITH_PROGRAMS=OFF ^
+    -DLIBXML2_WITH_PUSH=OFF -DLIBXML2_WITH_PYTHON=OFF -DLIBXML2_WITH_READER=OFF ^
+    -DLIBXML2_WITH_REGEXPS=OFF -DLIBXML2_WITH_RUN_DEBUG=OFF -DLIBXML2_WITH_SAX1=OFF ^
+    -DLIBXML2_WITH_SCHEMAS=OFF -DLIBXML2_WITH_SCHEMATRON=OFF -DLIBXML2_WITH_TESTS=OFF ^
+    -DLIBXML2_WITH_THREADS=ON -DLIBXML2_WITH_THREAD_ALLOC=OFF -DLIBXML2_WITH_TREE=ON ^
+    -DLIBXML2_WITH_VALID=OFF -DLIBXML2_WITH_WRITER=OFF -DLIBXML2_WITH_XINCLUDE=OFF ^
+    -DLIBXML2_WITH_XPATH=OFF -DLIBXML2_WITH_XPTR=OFF -DLIBXML2_WITH_ZLIB=OFF ^
+    ../../libxml2-v2.9.12 || exit /b 1
+  ninja install || exit /b 1
+  cd ..
+)
+set libxmldir=%cd%\libxmlbuild\install
 set "libxmldir=%libxmldir:\=/%"
-cd ..
 exit /b 0
 
 ::==============================================================================
